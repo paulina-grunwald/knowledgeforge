@@ -17,7 +17,7 @@ async def ensure_collection(
     """Create Qdrant collection for a user+corpus pair if it doesn't exist.
 
     Collection name: f"{user_id}_{corpus_id}"
-    Vector config: size=768, distance=COSINE
+    Vector config: size=1536 (OpenAI), distance=COSINE
     Payload indexes:
       - concept_id: keyword
       - knowledge_state: keyword
@@ -47,7 +47,7 @@ async def ensure_collection(
             collection_name=collection_name,
             vectors_config=VectorParams(size=VECTOR_SIZE, distance=DISTANCE),
         )
-        logger.info("Created Qdrant collection: %s", collection_name)
+        logger.info("Created Qdrant collection: %s (vector_size=%d)", collection_name, VECTOR_SIZE)
 
         for field_name in ("concept_id", "knowledge_state", "parent_doc_id", "document_id", "source_type"):
             await client.create_payload_index(
@@ -60,3 +60,21 @@ async def ensure_collection(
         logger.info("Qdrant collection already exists: %s", collection_name)
 
     return collection_name
+
+
+async def recreate_collection(
+    client: AsyncQdrantClient, user_id: str, corpus_id: str
+) -> str:
+    """Delete old collection and create new one (for migration).
+
+    Useful when changing vector dimensions during embedding migration.
+    """
+    collection_name = f"{user_id}_{corpus_id}"
+
+    try:
+        await client.delete_collection(collection_name)
+        logger.info("Deleted old collection: %s (for migration)", collection_name)
+    except Exception as e:
+        logger.warning("Could not delete old collection %s: %s", collection_name, e)
+
+    return await ensure_collection(client, user_id, corpus_id)

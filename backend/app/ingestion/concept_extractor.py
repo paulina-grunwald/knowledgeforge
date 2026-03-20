@@ -1,10 +1,10 @@
-import difflib
 import logging
 from uuid import UUID
 
 import anthropic
 import instructor
 from pydantic import BaseModel
+from rapidfuzz import fuzz
 
 from app.config import settings
 
@@ -91,12 +91,12 @@ def resolve_prerequisites(
                 resolved_ids.append(name_to_id[prereq_lower])
                 continue
 
-            # Fuzzy match (O(n) for each prerequisite - O(n²) overall)
-            # TODO Phase 2: Replace with rapidfuzz for better performance at scale
+            # Fuzzy match using rapidfuzz (faster than difflib, semantic-aware)
             best_match: str | None = None
             best_ratio = 0.0
             for stored_name in stored_names:
-                ratio = difflib.SequenceMatcher(None, prereq_lower, stored_name).ratio()
+                # token_set_ratio is more accurate for concept names (handles word order)
+                ratio = fuzz.token_set_ratio(prereq_lower, stored_name) / 100.0
                 if ratio > best_ratio:
                     best_ratio = ratio
                     best_match = stored_name
