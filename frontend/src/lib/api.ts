@@ -49,6 +49,41 @@ export interface CorpusDetail {
   created_at: string;
 }
 
+// ---------- Phase 2: Retrieval ----------
+
+export type RetrievalMethod = "semantic" | "lexical" | "fused";
+
+export interface RetrievedChunk {
+  chunk_text: string;
+  concept_id: string;
+  parent_doc_id: string;
+  source_page: number | null;
+  chunk_index: number;
+  score: number;
+  retrieval_method: RetrievalMethod;
+}
+
+export interface RetrievalResult {
+  chunks: RetrievedChunk[];
+  parent_sections: string[];
+  query_expansions: string[];
+  latency_ms: number;
+}
+
+export interface ConceptItem {
+  concept_id: string;
+  name: string;
+  definition: string;
+  prerequisites: string[];
+}
+
+export interface DebugRetrieveRequest {
+  corpus_id: string;
+  concept_name: string;
+  concept_id?: string;
+  top_n?: number;
+}
+
 // ---------- Documents ----------
 
 export async function uploadDocument(file: File): Promise<UploadResult> {
@@ -148,4 +183,92 @@ export async function deleteCorpus(corpusId: string): Promise<void> {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Failed to delete study set");
   }
+}
+
+// ---------- Retrieval (Phase 2) ----------
+
+export async function debugRetrieve(
+  req: DebugRetrieveRequest
+): Promise<RetrievalResult> {
+  const body: Record<string, unknown> = {
+    corpus_id: req.corpus_id,
+    concept_name: req.concept_name,
+  };
+
+  if (req.concept_id) {
+    body.concept_id = req.concept_id;
+  }
+  if (req.top_n !== undefined) {
+    body.top_n = req.top_n;
+  }
+
+  const res = await fetch(`${API_BASE}/debug/retrieve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Retrieval failed");
+  }
+
+  return res.json();
+}
+
+export async function listConcepts(corpusId: string): Promise<ConceptItem[]> {
+  const res = await fetch(`${API_BASE}/corpora/${corpusId}/concepts`);
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to list concepts");
+  }
+
+  const data = await res.json();
+  return data.concepts || [];
+}
+
+export async function getConcept(conceptId: string): Promise<ConceptItem> {
+  const res = await fetch(`${API_BASE}/concepts/${conceptId}`);
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to get concept");
+  }
+
+  return res.json();
+}
+
+export async function getCorpusByName(
+  name: string
+): Promise<CorpusDetail | null> {
+  try {
+    const corpora = await listCorpora();
+    const corpus = corpora.find(
+      (c) => c.name.toLowerCase() === name.toLowerCase()
+    );
+    if (!corpus) return null;
+    return getCorpusStatus(corpus.corpus_id);
+  } catch {
+    return null;
+  }
+}
+
+export async function getDocumentsForCorpus(
+  corpusId: string
+): Promise<{ document_id: string; filename: string; source_type: string }[]> {
+  const res = await fetch(`${API_BASE}/corpora/${corpusId}`);
+  if (!res.ok) throw new Error("Failed to fetch corpus documents");
+  const corpus = await res.json();
+  return corpus.documents || [];
+}
+
+export async function getDocumentContent(
+  documentId: string
+): Promise<Blob> {
+  const res = await fetch(
+    `${API_BASE}/documents/${documentId}/content?user_id=${USER_ID}`
+  );
+  if (!res.ok) throw new Error("Failed to fetch document content");
+  return res.blob();
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +28,7 @@ interface Props {
 }
 
 export function StudySetList({ corpora, selectedDocIds, onRefresh }: Props) {
+  const router = useRouter();
   const [deleting, setDeleting] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
 
@@ -86,63 +88,89 @@ export function StudySetList({ corpora, selectedDocIds, onRefresh }: Props) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Study Sets ({corpora.length})</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-3">
-          {corpora.map((c) => (
-            <div
-              key={c.corpus_id}
-              className="p-4 rounded-lg border border-border"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold">{c.name}</h3>
-                <div className="flex items-center gap-2">
-                  <Badge variant={statusColor(c.status)}>{c.status}</Badge>
-                  {selectedDocIds.size > 0 && c.status === "ready" && (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Study Sets ({corpora.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {corpora.map((c) => (
+              <div
+                key={c.corpus_id}
+                className="p-4 rounded-lg border border-border"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold">{c.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={statusColor(c.status)}>{c.status}</Badge>
+                    {c.status === "ready" && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2"
+                          onClick={() =>
+                            router.push(`/study-set/${encodeURIComponent(c.name)}`)
+                          }
+                        >
+                          View Documents
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2"
+                          onClick={() =>
+                            router.push(`/study-sets/${c.corpus_id}/concepts`)
+                          }
+                        >
+                          Explore Concepts
+                        </Button>
+                      </>
+                    )}
+                    {selectedDocIds.size > 0 && c.status === "ready" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={() => handleAddDocs(c.corpus_id)}
+                        disabled={adding === c.corpus_id}
+                      >
+                        {adding === c.corpus_id ? "Adding..." : `+ Add ${selectedDocIds.size} doc(s)`}
+                      </Button>
+                    )}
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
-                      className="h-7 px-2"
-                      onClick={() => handleAddDocs(c.corpus_id)}
-                      disabled={adding === c.corpus_id}
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
+                      onClick={() => handleDelete(c.corpus_id, c.name)}
+                      disabled={deleting === c.corpus_id}
                     >
-                      {adding === c.corpus_id ? "Adding..." : `+ Add ${selectedDocIds.size} doc(s)`}
+                      {deleting === c.corpus_id ? "..." : "Delete"}
                     </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
-                    onClick={() => handleDelete(c.corpus_id, c.name)}
-                    disabled={deleting === c.corpus_id}
-                  >
-                    {deleting === c.corpus_id ? "..." : "Delete"}
-                  </Button>
+                  </div>
                 </div>
+
+                {(c.status === "processing" || c.status === "pending") && (
+                  <Progress value={c.status === "pending" ? 10 : 50} className="mb-2" />
+                )}
+
+                <div className="flex gap-4 text-sm text-muted-foreground">
+                  <span>{c.document_count} docs</span>
+                  <span>{c.chunk_count} chunks</span>
+                  <span>{c.concept_count} concepts</span>
+                </div>
+
+                {c.ingested_at && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Ingested {new Date(c.ingested_at).toLocaleString()}
+                  </p>
+                )}
               </div>
-
-              {(c.status === "processing" || c.status === "pending") && (
-                <Progress value={c.status === "pending" ? 10 : 50} className="mb-2" />
-              )}
-
-              <div className="flex gap-4 text-sm text-muted-foreground">
-                <span>{c.document_count} docs</span>
-                <span>{c.chunk_count} chunks</span>
-                <span>{c.concept_count} concepts</span>
-              </div>
-
-              {c.ingested_at && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Ingested {new Date(c.ingested_at).toLocaleString()}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </>
   );
 }
