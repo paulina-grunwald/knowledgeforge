@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -48,7 +49,7 @@ async def upload_document(
         )
 
     # Determine source type
-    filename = file.filename or "untitled"
+    filename = Path(file.filename or "untitled").name
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     source_type = EXTENSION_TO_SOURCE_TYPE.get(ext)
     if source_type is None:
@@ -163,62 +164,6 @@ async def list_documents(
     return DocumentListResponse(documents=items, total=len(items))
 
 
-@router.get("/debug/check-document/{document_id}")
-async def debug_check_document(
-    document_id: str,
-    user_id: str,
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Debug endpoint: Check what the database thinks about a document."""
-    stmt = select(Document).where(
-        Document.id == UUID(document_id),
-        Document.user_id == UUID(user_id),
-    )
-    result = await db.execute(stmt)
-    doc = result.scalar_one_or_none()
-
-    if doc is None:
-        return {"error": "Document not found in database"}
-
-    # Check if file exists
-    file_path = Path(settings.upload_dir) / user_id / document_id / doc.filename
-
-    return {
-        "document_id": str(doc.id),
-        "filename_in_db": doc.filename,
-        "expected_path": str(file_path),
-        "file_exists": file_path.exists(),
-        "upload_dir": settings.upload_dir,
-    }
-
-
-@router.get("/debug/list-uploads")
-async def debug_list_uploads() -> dict:
-    """Debug endpoint: List all files in uploads directory."""
-    upload_path = Path(settings.upload_dir)
-    logger.info("Upload directory: %s", upload_path)
-    logger.info("Upload directory exists: %s", upload_path.exists())
-
-    if not upload_path.exists():
-        return {"error": "Upload directory does not exist", "path": str(upload_path)}
-
-    all_files = {}
-    try:
-        for user_dir in upload_path.iterdir():
-            if user_dir.is_dir():
-                user_files = {}
-                for doc_dir in user_dir.iterdir():
-                    if doc_dir.is_dir():
-                        files = [f.name for f in doc_dir.iterdir() if f.is_file()]
-                        user_files[doc_dir.name] = files
-                all_files[user_dir.name] = user_files
-    except Exception as e:
-        logger.error("Error listing uploads: %s", e)
-        return {"error": str(e)}
-
-    return {"upload_dir": str(upload_path), "files": all_files}
-
-
 @router.get("/{document_id}/content")
 async def get_document_content(
     document_id: str,
@@ -247,10 +192,11 @@ async def get_document_content(
             raise HTTPException(status_code=404, detail=f"Document file not found at {file_path}")
 
         content = await storage.load(user_id, document_id, doc.filename)
+        filename_safe = quote(doc.filename.encode('utf-8'))
         return StreamingResponse(
             BytesIO(content),
             media_type="application/octet-stream",
-            headers={"Content-Disposition": f"attachment; filename={doc.filename}"},
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename_safe}"},
         )
     except HTTPException:
         raise
