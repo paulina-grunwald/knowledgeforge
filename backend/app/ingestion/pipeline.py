@@ -2,6 +2,7 @@ import logging
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+import faiss
 import numpy as np
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import PointStruct
@@ -12,7 +13,7 @@ from app.db.models import Concept, Corpus, CorpusStatus, KnowledgeState, Knowled
 from app.db.qdrant_setup import ensure_collection
 from app.ingestion.chunker import Chunk, chunk_pages
 from app.ingestion.concept_extractor import extract_concepts, resolve_prerequisites
-from app.ingestion.embedder import embed_chunks, embed_single
+from app.ingestion.embedder import embed_chunks, embed_texts
 from app.ingestion.loaders import DocumentPages
 
 logger = logging.getLogger(__name__)
@@ -20,14 +21,67 @@ logger = logging.getLogger(__name__)
 DEDUP_THRESHOLD = 0.92
 
 
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    va = np.array(a)
-    vb = np.array(b)
-    dot = np.dot(va, vb)
-    norm = np.linalg.norm(va) * np.linalg.norm(vb)
-    if norm == 0:
-        return 0.0
-    return float(dot / norm)
+def _deduplicate_concepts_faiss(
+    db_concepts: list[Concept],
+    concept_embeddings: list[list[float]],
+    threshold: float = DEDUP_THRESHOLD,
+) -> tuple[list[Concept], list[list[float]], list[Concept]]:
+    """Use FAISS for O(n log n) deduplication instead of O(n²).
+
+    Only use if concept count >= 50 (overhead not worth it for small corpora).
+    Returns (kept_concepts, kept_embeddings, concepts_to_delete).
+    """
+    if len(db_concepts) < 50:
+        return db_concepts, concept_embeddings, []
+
+    # Normalize vectors for cosine similarity
+    embeddings_matrix = np.array(concept_embeddings, dtype=np.float32)
+    faiss.normalize_L2(embeddings_matrix)
+
+    # Build FAISS index
+    index = faiss.IndexFlatIP(embeddings_matrix.shape[1])
+    index.add(embeddings_matrix)
+
+    # Find duplicates: search each vector, get k=2 (self + nearest neighbor)
+    similarities, indices = index.search(embeddings_matrix, k=2)
+
+    # Keep concepts with longer definition
+    to_remove: set[int] = set()
+    for i, (scores, neighbors) in enumerate(zip(similarities, indices)):
+        if i in to_remove:
+            continue
+
+        neighbor_idx = int(neighbors[1])
+        if neighbor_idx in to_remove:
+            continue
+
+        similarity = float(scores[1])
+        if similarity > threshold:
+            # Both are duplicates; keep the one with longer definition
+            if len(db_concepts[i].definition) < len(db_concepts[neighbor_idx].definition):
+                to_remove.add(i)
+                logger.info(
+                    "Deduplicating concepts: '%s' and '%s' (sim=%.3f)",
+                    db_concepts[i].name,
+                    db_concepts[neighbor_idx].name,
+                    similarity,
+                )
+            else:
+                to_remove.add(neighbor_idx)
+                logger.info(
+                    "Deduplicating concepts: '%s' and '%s' (sim=%.3f)",
+                    db_concepts[i].name,
+                    db_concepts[neighbor_idx].name,
+                    similarity,
+                )
+
+    # Separate kept and removed
+    to_delete = [db_concepts[i] for i in sorted(to_remove)]
+    deduped_concepts = [c for i, c in enumerate(db_concepts) if i not in to_remove]
+    deduped_embeddings = [e for i, e in enumerate(concept_embeddings) if i not in to_remove]
+
+    logger.info(f"Deduped {len(db_concepts)} → {len(deduped_concepts)} concepts")
+    return deduped_concepts, deduped_embeddings, to_delete
 
 
 async def ingest_corpus(
@@ -87,12 +141,12 @@ async def ingest_corpus(
 
         # 5. Embed concept definitions, insert into DB
         db_concepts: list[Concept] = []
-        concept_embeddings: list[list[float]] = []
 
-        for ec in extracted_concepts:
-            emb = await embed_single(ec.definition)
-            concept_embeddings.append(emb)
+        # Batch embed all concept definitions at once
+        definitions = [ec.definition for ec in extracted_concepts]
+        concept_embeddings = await embed_texts(definitions)
 
+        for ec, emb in zip(extracted_concepts, concept_embeddings, strict=True):
             concept = Concept(
                 id=uuid4(),
                 corpus_id=corpus_id,
@@ -115,36 +169,17 @@ async def ingest_corpus(
 
         await db.flush()
 
-        # 7. Deduplicate concepts (cosine_similarity > 0.92)
-        # TODO Phase 2: Use FAISS or Qdrant's search for O(n log n) performance instead of O(n²)
-        to_remove: set[int] = set()
-        for i in range(len(db_concepts)):
-            if i in to_remove:
-                continue
-            for j in range(i + 1, len(db_concepts)):
-                if j in to_remove:
-                    continue
-                sim = _cosine_similarity(concept_embeddings[i], concept_embeddings[j])
-                if sim > DEDUP_THRESHOLD:
-                    # Keep the one with longer definition
-                    if len(db_concepts[i].definition) >= len(db_concepts[j].definition):
-                        to_remove.add(j)
-                    else:
-                        to_remove.add(i)
-                    logger.info(
-                        "Deduplicating concepts: '%s' and '%s' (sim=%.3f)",
-                        db_concepts[i].name,
-                        db_concepts[j].name,
-                        sim,
-                    )
+        # 7. Deduplicate concepts (FAISS for O(n log n) if 50+ concepts, else O(n²))
+        db_concepts, concept_embeddings, to_delete = _deduplicate_concepts_faiss(
+            db_concepts, concept_embeddings, threshold=DEDUP_THRESHOLD
+        )
 
-        for idx in sorted(to_remove, reverse=True):
-            await db.delete(db_concepts[idx])
-            db_concepts.pop(idx)
-            concept_embeddings.pop(idx)
+        # Delete deduped concepts from DB
+        for concept in to_delete:
+            await db.delete(concept)
 
         await db.flush()
-        logger.info("After dedup: %d concepts", len(db_concepts))
+        logger.info("After dedup: %d concepts remain", len(db_concepts))
 
         # 8. Ensure Qdrant collection and upsert chunks
         collection_name = await ensure_collection(qdrant, str(user_id), str(corpus_id))

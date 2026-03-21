@@ -1,10 +1,12 @@
 import logging
-from io import BytesIO
+from pathlib import Path
+from urllib.parse import quote
 from uuid import UUID
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from io import BytesIO
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,7 +50,7 @@ async def upload_document(
         )
 
     # Determine source type
-    filename = file.filename or "untitled"
+    filename = Path(file.filename or "untitled").name
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     source_type = EXTENSION_TO_SOURCE_TYPE.get(ext)
     if source_type is None:
@@ -98,8 +100,20 @@ async def upload_document(
     db.add(doc)
     await db.flush()
 
-    # Save file
-    await storage.save(user_id, str(doc.id), filename, file_bytes)
+    # Save file to disk
+    try:
+        await storage.save(user_id, str(doc.id), filename, file_bytes)
+        logger.info("Successfully saved file for document %s", doc.id)
+    except Exception as e:
+        logger.error("Failed to save file for document %s: %s", doc.id, e)
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save document file: {str(e)}"
+        )
+
+    # Commit the transaction
+    await db.commit()
 
     return DocumentResponse(
         document_id=str(doc.id),

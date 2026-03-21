@@ -20,7 +20,7 @@ from app.api.schemas.corpora import (
 )
 from app.config import settings
 from app.db.models import Concept, Corpus, CorpusStatus, Document, KnowledgeState, corpus_documents
-from app.db.session import get_db
+from app.db.session import async_session_factory, get_db
 from app.ingestion.loaders import load_document
 from app.ingestion.pipeline import ingest_corpus
 from app.ingestion.storage import FileStorage
@@ -48,35 +48,38 @@ async def _run_ingestion(
     user_id: UUID,
     document_ids: list[UUID],
     storage: FileStorage,
-    db: AsyncSession,
-    qdrant: AsyncQdrantClient,
 ) -> None:
     """Load documents and run ingestion pipeline."""
+    async with async_session_factory() as db:
+        qdrant = AsyncQdrantClient(url=settings.qdrant_url)
+        try:
+            doc_pages_list = []
 
-    doc_pages_list = []
+            for doc_id in document_ids:
+                doc = await db.get(Document, doc_id)
+                if doc is None:
+                    logger.error("Document %s not found during ingestion", doc_id)
+                    continue
 
-    for doc_id in document_ids:
-        doc = await db.get(Document, doc_id)
-        if doc is None:
-            logger.error("Document %s not found during ingestion", doc_id)
-            continue
+                file_bytes = await storage.load(str(user_id), str(doc_id), doc.filename)
+                doc_pages = await load_document(
+                    document_id=str(doc_id),
+                    filename=doc.filename,
+                    source_type=doc.source_type,
+                    file_bytes=file_bytes,
+                )
+                doc_pages_list.append(doc_pages)
 
-        file_bytes = await storage.load(str(user_id), str(doc_id), doc.filename)
-        doc_pages = await load_document(
-            document_id=str(doc_id),
-            filename=doc.filename,
-            source_type=doc.source_type,
-            file_bytes=file_bytes,
-        )
-        doc_pages_list.append(doc_pages)
-
-    await ingest_corpus(
-        corpus_id=corpus_id,
-        user_id=user_id,
-        document_pages=doc_pages_list,
-        db=db,
-        qdrant=qdrant,
-    )
+            await ingest_corpus(
+                corpus_id=corpus_id,
+                user_id=user_id,
+                document_pages=doc_pages_list,
+                db=db,
+                qdrant=qdrant,
+            )
+            await db.commit()
+        finally:
+            await qdrant.close()
 
 
 # ---------------------------------------------------------------------------
@@ -136,8 +139,6 @@ async def create_corpus(
         user_id=user_uuid,
         document_ids=[UUID(doc_id) for doc_id in request.document_ids],
         storage=storage,
-        db=db,
-        qdrant=qdrant,
     )
 
     return CreateCorpusResponse(
@@ -247,6 +248,42 @@ async def get_corpus_status(
     )
 
 
+@router.get("/{corpus_id}/concepts", response_model=ConceptsResponse)
+async def get_corpus_concepts(
+    corpus_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ConceptsResponse:
+    """Get all concepts in a corpus with prerequisite names resolved."""
+    corpus = await db.get(Corpus, UUID(corpus_id))
+    if corpus is None:
+        raise HTTPException(status_code=404, detail="Corpus not found")
+
+    stmt = select(Concept).where(Concept.corpus_id == corpus.id).order_by(Concept.name)
+    result = await db.execute(stmt)
+    concepts = result.scalars().all()
+
+    # Build a map of concept IDs to names for prerequisite lookup
+    concept_id_to_name = {c.id: c.name for c in concepts}
+
+    return ConceptsResponse(
+        corpus_id=corpus_id,
+        concepts=[
+            ConceptItem(
+                concept_id=str(c.id),
+                name=c.name,
+                definition=c.definition,
+                prerequisites=[
+                    concept_id_to_name.get(p, str(p))
+                    for p in (c.prerequisites or [])
+                    if p in concept_id_to_name
+                ],
+            )
+            for c in concepts
+        ],
+        total=len(concepts),
+    )
+
+
 @router.post("/{corpus_id}/documents", response_model=AddDocumentsResponse)
 async def add_documents_to_corpus(
     corpus_id: str,
@@ -333,8 +370,6 @@ async def add_documents_to_corpus(
         user_id=user_uuid,
         document_ids=all_doc_ids,
         storage=storage,
-        db=db,
-        qdrant=qdrant,
     )
 
     return AddDocumentsResponse(

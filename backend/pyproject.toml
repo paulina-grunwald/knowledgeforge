@@ -12,8 +12,11 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings",
     "anthropic>=0.28",
+    "openai>=1.30",
+    "cohere>=5.0",
     "qdrant-client>=1.9",
-    "sentence-transformers",
+    "rank-bm25>=0.2",
+    "faiss-cpu>=1.8",
     "langchain>=0.2",
     "langchain-community",
     "pymupdf",
@@ -22,6 +25,9 @@ dependencies = [
     "httpx",
     "pgvector",
     "python-multipart",
+    "rapidfuzz>=3.0",
+    "tqdm>=4.66",
+    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]
@@ -42,6 +48,9 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: marks tests as integration tests that require Docker services (deselect with '-m \"not integration\"')",
+]
 
 [tool.mypy]
 python_version = "3.12"
