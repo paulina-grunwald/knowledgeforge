@@ -4,6 +4,7 @@ import logging
 from collections import defaultdict
 
 from qdrant_client import AsyncQdrantClient
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 from app.retrieval.types import RetrievedChunk
 
@@ -46,18 +47,17 @@ async def fetch_parent_sections(
             continue  # Already fetched this parent
 
         try:
-            # Query Qdrant for all chunks with this parent_doc_id
-            # Note: This is a basic scroll operation. In production, could add proper filtering.
+            # Query Qdrant for all chunks with this parent_doc_id using native filtering
             points = await qdrant_client.scroll(
                 collection_name=collection_name,
+                scroll_filter=Filter(must=[
+                    FieldCondition(key="parent_doc_id", match=MatchValue(value=parent_id))
+                ]),
                 limit=1000,
             )
 
-            # Filter to chunks from this parent, sort by chunk_index
-            parent_chunks = [
-                p for p in points[0]
-                if p.payload.get("parent_doc_id") == parent_id
-            ]
+            # Points are already filtered by Qdrant, sort by chunk_index
+            parent_chunks = points[0]
             parent_chunks.sort(key=lambda p: p.payload.get("chunk_index", 0))
 
             # Concatenate chunk texts
