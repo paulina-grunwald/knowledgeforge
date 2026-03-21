@@ -77,3 +77,16 @@ class CorpusListItem(BaseModel):
 class CorpusListResponse(BaseModel):
     corpora: list[CorpusListItem]
     total: int
+
+
+class ConceptItem(BaseModel):
+    concept_id: str
+    name: str
+    definition: str
+    prerequisites: list[str]
+
+
+class ConceptsResponse(BaseModel):
+    corpus_id: str
+    concepts: list[ConceptItem]
+    total: int

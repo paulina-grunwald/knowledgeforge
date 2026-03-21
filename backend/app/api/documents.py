@@ -1,7 +1,11 @@
 import logging
+from pathlib import Path
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
+from io import BytesIO
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,7 +49,7 @@ async def upload_document(
         )
 
     # Determine source type
-    filename = file.filename or "untitled"
+    filename = Path(file.filename or "untitled").name
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     source_type = EXTENSION_TO_SOURCE_TYPE.get(ext)
     if source_type is None:
@@ -95,8 +99,20 @@ async def upload_document(
     db.add(doc)
     await db.flush()
 
-    # Save file
-    await storage.save(user_id, str(doc.id), filename, file_bytes)
+    # Save file to disk
+    try:
+        await storage.save(user_id, str(doc.id), filename, file_bytes)
+        logger.info("Successfully saved file for document %s", doc.id)
+    except Exception as e:
+        logger.error("Failed to save file for document %s: %s", doc.id, e)
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save document file: {str(e)}"
+        )
+
+    # Commit the transaction
+    await db.commit()
 
     return DocumentResponse(
         document_id=str(doc.id),
@@ -146,3 +162,48 @@ async def list_documents(
     ]
 
     return DocumentListResponse(documents=items, total=len(items))
+
+
+@router.get("/{document_id}/content")
+async def get_document_content(
+    document_id: str,
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    storage: FileStorage = Depends(get_storage),
+) -> FileResponse:
+    """Retrieve document file for viewing/download."""
+    stmt = select(Document).where(
+        Document.id == UUID(document_id),
+        Document.user_id == UUID(user_id),
+    )
+    result = await db.execute(stmt)
+    doc = result.scalar_one_or_none()
+
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    try:
+        # Check if file exists
+        file_path = Path(settings.upload_dir) / user_id / document_id / doc.filename
+        logger.info("Attempting to load document from: %s", file_path)
+
+        if not file_path.exists():
+            logger.error("Document file does not exist at path: %s", file_path)
+            raise HTTPException(status_code=404, detail=f"Document file not found at {file_path}")
+
+        content = await storage.load(user_id, document_id, doc.filename)
+        filename_safe = quote(doc.filename.encode('utf-8'))
+        return StreamingResponse(
+            BytesIO(content),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename_safe}"},
+        )
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        logger.error("Document file not found: user_id=%s, doc_id=%s, filename=%s, error=%s",
+                    user_id, document_id, doc.filename, e)
+        raise HTTPException(status_code=404, detail="Document file not found on disk")
+    except Exception as e:
+        logger.error("Error retrieving document: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve document: {str(e)}")
