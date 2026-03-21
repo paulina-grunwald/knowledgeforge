@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 from urllib.parse import quote
 from uuid import UUID
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -165,34 +166,31 @@ async def list_documents(
 
 
 @router.get("/{document_id}/content")
-async def get_document_content(
-    document_id: str,
+async def download_document(
+    document_id: UUID,
     user_id: str,
     db: AsyncSession = Depends(get_db),
     storage: FileStorage = Depends(get_storage),
-) -> FileResponse:
-    """Retrieve document file for viewing/download."""
-    stmt = select(Document).where(
-        Document.id == UUID(document_id),
-        Document.user_id == UUID(user_id),
-    )
-    result = await db.execute(stmt)
-    doc = result.scalar_one_or_none()
-
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-
+) -> StreamingResponse:
+    """Download a document's file content."""
     try:
-        # Check if file exists
-        file_path = Path(settings.upload_dir) / user_id / document_id / doc.filename
-        logger.info("Attempting to load document from: %s", file_path)
+        # Fetch document from DB
+        stmt = select(Document).where(
+            Document.id == document_id,
+            Document.user_id == UUID(user_id),
+        )
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
 
-        if not file_path.exists():
-            logger.error("Document file does not exist at path: %s", file_path)
-            raise HTTPException(status_code=404, detail=f"Document file not found at {file_path}")
+        if doc is None:
+            raise HTTPException(status_code=404, detail="Document not found")
 
-        content = await storage.load(user_id, document_id, doc.filename)
-        filename_safe = quote(doc.filename.encode('utf-8'))
+        # Load file
+        content = await storage.load(user_id, str(document_id), doc.filename)
+
+        # URL-encode filename for Content-Disposition header (RFC 5987)
+        filename_safe = quote(doc.filename.encode("utf-8"))
+
         return StreamingResponse(
             BytesIO(content),
             media_type="application/octet-stream",
@@ -200,10 +198,13 @@ async def get_document_content(
         )
     except HTTPException:
         raise
-    except FileNotFoundError as e:
-        logger.error("Document file not found: user_id=%s, doc_id=%s, filename=%s, error=%s",
-                    user_id, document_id, doc.filename, e)
-        raise HTTPException(status_code=404, detail="Document file not found on disk")
+    except FileNotFoundError:
+        logger.error(
+            "Document file not found: user_id=%s, doc_id=%s",
+            user_id,
+            document_id,
+        )
+        raise HTTPException(status_code=404, detail="Document file not found")
     except Exception as e:
-        logger.error("Error retrieving document: %s", e)
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve document: {str(e)}")
+        logger.error("Error downloading document: %s", e)
+        raise HTTPException(status_code=500, detail="Error downloading document")

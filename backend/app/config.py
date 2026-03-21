@@ -9,6 +9,7 @@ EMBEDDING_DIMENSION = 1536
 
 class Settings(BaseSettings):
     anthropic_api_key: str = ""
+    openai_api_key: str = ""
     cohere_api_key: str = ""
     openai_api_key: str = ""
     qdrant_url: str = "http://localhost:6333"
