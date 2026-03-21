@@ -81,6 +81,7 @@ async def qdrant_client():
     """Get Qdrant client for each test."""
     client = AsyncQdrantClient(url=settings.qdrant_url)
     yield client
+    await client.close()
 
 
 @pytest.fixture
@@ -123,7 +124,6 @@ async def test_corpus(
         chunk_count=10,
     )
     db_session.add(corpus)
-    db_session.add_all([corpus])  # Ensure document is in session
     await db_session.commit()
     await db_session.refresh(corpus)
     return corpus

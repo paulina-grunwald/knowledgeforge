@@ -1,5 +1,6 @@
 """Retrieval pipeline orchestrator."""
 
+import hashlib
 import json
 import logging
 import time
@@ -60,7 +61,7 @@ class RetrievalPipeline:
         start = time.time()
         redis = await get_redis()
 
-        cache_key = f"retrieval:{concept_id}:{hash(concept_name)}"
+        cache_key = f"retrieval:{concept_id}:{hashlib.sha256(concept_name.encode()).hexdigest()[:12]}"
         try:
             cached = await redis.get(cache_key)
             if cached:

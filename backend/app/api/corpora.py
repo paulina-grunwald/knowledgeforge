@@ -20,8 +20,7 @@ from app.api.schemas.corpora import (
 )
 from app.config import settings
 from app.db.models import Concept, Corpus, CorpusStatus, Document, KnowledgeState, corpus_documents
-from app.db.session import get_db
-from app.db.session import async_session_factory
+from app.db.session import async_session_factory, get_db
 from app.ingestion.loaders import load_document
 from app.ingestion.pipeline import ingest_corpus
 from app.ingestion.storage import FileStorage
@@ -53,32 +52,34 @@ async def _run_ingestion(
     """Load documents and run ingestion pipeline."""
     async with async_session_factory() as db:
         qdrant = AsyncQdrantClient(url=settings.qdrant_url)
+        try:
+            doc_pages_list = []
 
-        doc_pages_list = []
+            for doc_id in document_ids:
+                doc = await db.get(Document, doc_id)
+                if doc is None:
+                    logger.error("Document %s not found during ingestion", doc_id)
+                    continue
 
-        for doc_id in document_ids:
-            doc = await db.get(Document, doc_id)
-            if doc is None:
-                logger.error("Document %s not found during ingestion", doc_id)
-                continue
+                file_bytes = await storage.load(str(user_id), str(doc_id), doc.filename)
+                doc_pages = await load_document(
+                    document_id=str(doc_id),
+                    filename=doc.filename,
+                    source_type=doc.source_type,
+                    file_bytes=file_bytes,
+                )
+                doc_pages_list.append(doc_pages)
 
-            file_bytes = await storage.load(str(user_id), str(doc_id), doc.filename)
-            doc_pages = await load_document(
-                document_id=str(doc_id),
-                filename=doc.filename,
-                source_type=doc.source_type,
-                file_bytes=file_bytes,
+            await ingest_corpus(
+                corpus_id=corpus_id,
+                user_id=user_id,
+                document_pages=doc_pages_list,
+                db=db,
+                qdrant=qdrant,
             )
-            doc_pages_list.append(doc_pages)
-
-        await ingest_corpus(
-            corpus_id=corpus_id,
-            user_id=user_id,
-            document_pages=doc_pages_list,
-            db=db,
-            qdrant=qdrant,
-        )
-        await db.commit()
+            await db.commit()
+        finally:
+            await qdrant.close()
 
 
 # ---------------------------------------------------------------------------

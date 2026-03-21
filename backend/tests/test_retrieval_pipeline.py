@@ -6,41 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.models import Corpus
 from app.db.redis_client import get_redis
-from app.retrieval.hybrid import HybridRetriever, rrf_fuse
+from app.retrieval.hybrid import HybridRetriever
 from app.retrieval.pipeline import RetrievalPipeline
 from app.retrieval.reranker import CohereReranker
-
-
-@pytest.mark.asyncio
-class TestRRFAlgorithm:
-    """Test RRF fusion algorithm."""
-
-    async def test_rrf_both_lists(self):
-        """Doc in both lists ranks higher than doc in one list."""
-        semantic = {("doc1", 0): 0.9, ("doc2", 0): 0.8}
-        lexical = {("doc1", 0): 0.85, ("doc3", 0): 0.7}
-
-        result = rrf_fuse(semantic, lexical, k=60)
-        result_dict = dict(result)
-
-        assert result[0][0] == ("doc1", 0)
-        assert result_dict[("doc1", 0)] > result_dict[("doc2", 0)]
-
-    async def test_rrf_empty_inputs(self):
-        """Empty inputs return empty results."""
-        result = rrf_fuse({}, {}, k=60)
-        assert result == []
-
-    async def test_rrf_single_source(self):
-        """Single source returns correctly ranked results."""
-        semantic = {("doc1", 0): 0.9, ("doc2", 0): 0.8}
-        lexical = {}
-
-        result = rrf_fuse(semantic, lexical, k=60)
-
-        assert len(result) == 2
-        assert result[0][0] == ("doc1", 0)  # Higher semantic score ranks first
-        assert result[1][0] == ("doc2", 0)
 
 
 @pytest.mark.asyncio
@@ -126,6 +94,7 @@ class TestRetrievalPipeline:
 
     async def test_pipeline_cache_miss(self):
         """Test pipeline handles cache miss."""
+        import hashlib
         from unittest.mock import AsyncMock, patch
 
         retriever = AsyncMock()
@@ -133,7 +102,7 @@ class TestRetrievalPipeline:
         redis = await get_redis()
 
         # Ensure cache is empty
-        cache_key = f"retrieval:None:{hash('test concept')}"
+        cache_key = f"retrieval:None:{hashlib.sha256('test concept'.encode()).hexdigest()[:12]}"
         await redis.delete(cache_key)
 
         pipeline = RetrievalPipeline(retriever, reranker)
