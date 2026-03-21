@@ -1,7 +1,10 @@
 import logging
+from io import BytesIO
 from uuid import UUID
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -146,3 +149,48 @@ async def list_documents(
     ]
 
     return DocumentListResponse(documents=items, total=len(items))
+
+
+@router.get("/{document_id}/content")
+async def download_document(
+    document_id: UUID,
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    storage: FileStorage = Depends(get_storage),
+) -> StreamingResponse:
+    """Download a document's file content."""
+    try:
+        # Fetch document from DB
+        stmt = select(Document).where(
+            Document.id == document_id,
+            Document.user_id == UUID(user_id),
+        )
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if doc is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        # Load file
+        content = await storage.load(user_id, str(document_id), doc.filename)
+
+        # URL-encode filename for Content-Disposition header (RFC 5987)
+        filename_safe = quote(doc.filename.encode("utf-8"))
+
+        return StreamingResponse(
+            BytesIO(content),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename_safe}"},
+        )
+    except HTTPException:
+        raise
+    except FileNotFoundError:
+        logger.error(
+            "Document file not found: user_id=%s, doc_id=%s",
+            user_id,
+            document_id,
+        )
+        raise HTTPException(status_code=404, detail="Document file not found")
+    except Exception as e:
+        logger.error("Error downloading document: %s", e)
+        raise HTTPException(status_code=500, detail="Error downloading document")

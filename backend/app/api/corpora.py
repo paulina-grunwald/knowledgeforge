@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.schemas.corpora import (
     AddDocumentsRequest,
     AddDocumentsResponse,
+    ConceptItem,
+    ConceptsResponse,
     CorpusDocumentItem,
     CorpusListItem,
     CorpusListResponse,
@@ -373,3 +375,30 @@ async def delete_corpus(
         logger.info("Deleted Qdrant collection: %s", collection_name)
     except Exception:
         logger.warning("Could not delete Qdrant collection: %s", collection_name)
+
+
+@router.get("/{corpus_id}/concepts", response_model=ConceptsResponse)
+async def get_corpus_concepts(
+    corpus_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ConceptsResponse:
+    """Get all concepts for a corpus."""
+    corpus = await db.get(Corpus, UUID(corpus_id))
+    if corpus is None:
+        raise HTTPException(status_code=404, detail="Corpus not found")
+
+    stmt = select(Concept).where(Concept.corpus_id == UUID(corpus_id))
+    result = await db.execute(stmt)
+    concepts = result.scalars().all()
+
+    items = [
+        ConceptItem(
+            concept_id=str(c.id),
+            name=c.name,
+            definition=c.definition,
+            prerequisites=[str(p) for p in c.prerequisites] if c.prerequisites else None,
+        )
+        for c in concepts
+    ]
+
+    return ConceptsResponse(concepts=items, total=len(items))

@@ -136,9 +136,9 @@ export function ConceptExplorer({ corpusId }: ConceptExplorerProps) {
                   {truncate(concept.definition, 80)}
                 </td>
                 <td className="px-4 py-3 text-gray-600">
-                  {concept.prerequisites.length > 0 ? (
+                  {(concept.prerequisites?.length ?? 0) > 0 ? (
                     <div className="flex flex-wrap gap-1">
-                      {concept.prerequisites.slice(0, 2).map((p) => (
+                      {concept.prerequisites?.slice(0, 2).map((p) => (
                         <span
                           key={p}
                           className="inline-block px-2 py-1 bg-gray-100 rounded text-xs"
@@ -146,9 +146,9 @@ export function ConceptExplorer({ corpusId }: ConceptExplorerProps) {
                           {truncate(p, 15)}
                         </span>
                       ))}
-                      {concept.prerequisites.length > 2 && (
+                      {(concept.prerequisites?.length ?? 0) > 2 && (
                         <span className="text-xs text-gray-500">
-                          +{concept.prerequisites.length - 2} more
+                          +{(concept.prerequisites?.length ?? 0) - 2} more
                         </span>
                       )}
                     </div>

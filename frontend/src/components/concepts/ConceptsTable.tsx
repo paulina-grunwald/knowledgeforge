@@ -72,17 +72,17 @@ export function ConceptsTable({
                 <p>{concept.definition}</p>
               </td>
               <td className="px-6 py-4 text-gray-600">
-                {concept.prerequisites.length > 0 ? (
+                {(concept.prerequisites?.length ?? 0) > 0 ? (
                   <div className="flex flex-wrap gap-1">
-                    {concept.prerequisites.slice(0, 3).map((prereq, idx) => (
+                    {concept.prerequisites?.slice(0, 3).map((prereq, idx) => (
                       <PrerequisiteChip
                         key={`${concept.concept_id}-prereq-${idx}`}
                         name={prereq}
                       />
                     ))}
-                    {concept.prerequisites.length > 3 && (
+                    {(concept.prerequisites?.length ?? 0) > 3 && (
                       <span className="text-xs text-gray-500 inline-flex items-center">
-                        +{concept.prerequisites.length - 3} more
+                        +{(concept.prerequisites?.length ?? 0) - 3} more
                       </span>
                     )}
                   </div>

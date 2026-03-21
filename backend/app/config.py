@@ -12,6 +12,7 @@ EMBEDDING_DIMENSION = 768
 
 class Settings(BaseSettings):
     anthropic_api_key: str = ""
+    openai_api_key: str = ""
     cohere_api_key: str = ""
     qdrant_url: str = "http://localhost:6333"
     database_url: str = "postgresql+asyncpg://kg:kg@localhost:5432/knowledgeforge"
