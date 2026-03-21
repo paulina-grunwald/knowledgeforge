@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 DEDUP_THRESHOLD = 0.92
 
 
-async def _deduplicate_concepts_faiss(
+def _deduplicate_concepts_faiss(
     db_concepts: list[Concept],
     concept_embeddings: list[list[float]],
     threshold: float = DEDUP_THRESHOLD,
@@ -170,7 +170,7 @@ async def ingest_corpus(
         await db.flush()
 
         # 7. Deduplicate concepts (FAISS for O(n log n) if 50+ concepts, else O(n²))
-        db_concepts, concept_embeddings, to_delete = await _deduplicate_concepts_faiss(
+        db_concepts, concept_embeddings, to_delete = _deduplicate_concepts_faiss(
             db_concepts, concept_embeddings, threshold=DEDUP_THRESHOLD
         )
 

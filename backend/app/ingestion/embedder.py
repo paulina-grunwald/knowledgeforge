@@ -24,21 +24,10 @@ async def embed_chunks(chunks: list[Chunk]) -> list[list[float]]:
     Batches in groups of 100 to respect rate limits.
     Returns list of 1536-dim float vectors, same order as input.
     """
-    client = _get_client()
     texts = [c.text for c in chunks]
-    embeddings_list = []
-
-    for i in range(0, len(texts), 100):
-        batch = texts[i : i + 100]
-        response = await client.embeddings.create(
-            model="text-embedding-3-small",
-            input=batch,
-        )
-        embeddings_list.extend([e.embedding for e in response.data])
-        logger.info(f"Embedded batch {i // 100 + 1}/{(len(texts) + 99) // 100}")
-
+    embeddings = await embed_texts(texts)
     logger.info("Embedded %d chunks total", len(chunks))
-    return embeddings_list
+    return embeddings
 
 
 async def embed_texts(texts: list[str]) -> list[list[float]]:
