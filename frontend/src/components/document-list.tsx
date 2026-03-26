@@ -48,8 +48,8 @@ export function DocumentList({ documents, selectedIds, onToggle }: Props) {
               onClick={() => onToggle(doc.document_id)}
               className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
                 selectedIds.has(doc.document_id)
-                  ? "border-primary bg-primary/5"
-                  : "border-border hover:border-primary/30"
+                  ? "border-brand bg-brand-subtle"
+                  : "border-border hover:border-brand/30"
               }`}
             >
               <div className="flex items-center gap-3 min-w-0">
@@ -57,7 +57,7 @@ export function DocumentList({ documents, selectedIds, onToggle }: Props) {
                   type="checkbox"
                   checked={selectedIds.has(doc.document_id)}
                   onChange={() => onToggle(doc.document_id)}
-                  className="shrink-0"
+                  className="shrink-0 accent-[oklch(0.452_0.213_292)] w-4 h-4"
                 />
                 <div className="min-w-0">
                   <p className="font-medium truncate">{doc.filename}</p>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { Upload, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { uploadDocument, type UploadResult } from "@/lib/api";
@@ -54,10 +55,10 @@ export function DocumentUpload({ onUploaded }: Props) {
       </CardHeader>
       <CardContent>
         <div
-          className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
             dragOver
-              ? "border-primary bg-primary/5"
-              : "border-muted-foreground/25 hover:border-primary/50"
+              ? "border-brand bg-brand-subtle"
+              : "border-muted-foreground/25 hover:border-brand/50"
           }`}
           onClick={() => inputRef.current?.click()}
           onDragOver={(e) => {
@@ -80,12 +81,14 @@ export function DocumentUpload({ onUploaded }: Props) {
             onChange={(e) => handleFiles(e.target.files)}
           />
           {uploading ? (
-            <p className="text-muted-foreground">Uploading...</p>
+            <>
+              <Loader2 className="w-8 h-8 animate-spin text-brand mx-auto mb-3" />
+              <p className="text-muted-foreground text-sm">Uploading...</p>
+            </>
           ) : (
             <>
-              <p className="font-medium">
-                Drop files here or click to browse
-              </p>
+              <Upload className="w-8 h-8 text-muted-foreground mb-3 mx-auto" />
+              <p className="font-medium">Drop files here or click to browse</p>
               <p className="text-sm text-muted-foreground mt-1">
                 PDF, TXT, or MD files (max 50 MB each)
               </p>
@@ -94,7 +97,7 @@ export function DocumentUpload({ onUploaded }: Props) {
         </div>
 
         {results.length > 0 && (
-          <div className="mt-4 space-y-1">
+          <div className="mt-4 rounded-lg border border-border bg-muted/30 p-3 space-y-1">
             {results.map((r, i) => (
               <div
                 key={i}
