@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export function StudySetList({ corpora, selectedDocIds, onRefresh }: Props) {
+  const router = useRouter();
   const [deleting, setDeleting] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
 
@@ -104,26 +106,16 @@ export function StudySetList({ corpora, selectedDocIds, onRefresh }: Props) {
                   <Badge className={statusClassName(c.status)}>{c.status}</Badge>
                   {selectedDocIds.size > 0 && c.status === "ready" && (
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
-                      className="h-7 px-2"
-                      onClick={() => handleAddDocs(c.corpus_id)}
-                      disabled={adding === c.corpus_id}
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
+                      onClick={() => handleDelete(c.corpus_id, c.name)}
+                      disabled={deleting === c.corpus_id}
                     >
-                      {adding === c.corpus_id ? "Adding..." : `+ Add ${selectedDocIds.size} doc(s)`}
+                      {deleting === c.corpus_id ? "..." : "Delete"}
                     </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
-                    onClick={() => handleDelete(c.corpus_id, c.name)}
-                    disabled={deleting === c.corpus_id}
-                  >
-                    {deleting === c.corpus_id ? "..." : "Delete"}
-                  </Button>
+                  </div>
                 </div>
-              </div>
 
               {(c.status === "processing" || c.status === "pending") && (
                 <Progress value={c.status === "pending" ? 10 : 50} className="mb-2 h-1.5" />
@@ -141,15 +133,16 @@ export function StudySetList({ corpora, selectedDocIds, onRefresh }: Props) {
                 </span>
               </div>
 
-              {c.ingested_at && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Ingested {new Date(c.ingested_at).toLocaleString()}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+                {c.ingested_at && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Ingested {new Date(c.ingested_at).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </>
   );
 }
