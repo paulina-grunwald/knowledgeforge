@@ -42,7 +42,7 @@ export function CreateStudySet({ selectedDocIds, onCreated }: Props) {
   };
 
   return (
-    <Card>
+    <Card className="border-brand-200 bg-brand-subtle/30">
       <CardHeader>
         <CardTitle>Create Study Set</CardTitle>
       </CardHeader>
